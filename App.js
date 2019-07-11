@@ -1,6 +1,7 @@
 import { createStackNavigator, createAppContainer } from "react-navigation";
 import ArFrame from "./ArFrame";
 import MapPage from "./Map";
+import RandomBox from "./3dBox";
 import { Text, View, Button } from "react-native";
 import React, { Component } from "react";
 

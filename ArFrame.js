@@ -1,102 +1,170 @@
 import React from "react";
-import { Asset } from "expo-asset";
-import { AR } from "expo";
-// Let's alias ExpoTHREE.AR as ThreeAR so it doesn't collide with Expo.AR.
-import ExpoTHREE, { AR as ThreeAR, THREE } from "expo-three";
-// Let's also import `expo-graphics`
-// expo-graphics manages the setup/teardown of the gl context/ar session, creates a frame-loop, and observes size/orientation changes.
-// it also provides debug information with `isArCameraStateEnabled`
-import { View as GraphicsView } from "expo-graphics";
+import { StyleSheet, Text, View, Button } from "react-native";
+import { Camera, Permissions, FaceDetector, DangerZone } from "expo";
+import ThreeDBox from "./3dBox";
 
-export default class ArFrame extends React.Component {
+export default class CameraExample extends React.Component {
+  static defaultProps = {
+    countDownSeconds: 5,
+    motionInterval: 500, //ms between each device motion reading
+    motionTolerance: 1, //allowed variance in acceleration
+    cameraType: Camera.Constants.Type.rear //front vs rear facing camera
+  };
+
+  state = {
+    hasCameraPermission: null,
+    faceDetecting: false, //when true, we look for faces
+    faceDetected: false, //when true, we've found a face
+    motion: null, //captures the device motion object
+    detectMotion: false, //when true we attempt to determine if device is still
+    isAR: false
+  };
+
+  async componentWillMount() {
+    const { status } = await Permissions.askAsync(Permissions.CAMERA);
+    this.setState({ hasCameraPermission: status === "granted" });
+  }
+
   componentDidMount() {
-    // Turn off extra warnings
-    THREE.suppressExpoWarnings(true);
-    ThreeAR.suppressWarnings();
+    this.motionListener = DangerZone.DeviceMotion.addListener(
+      this.onDeviceMotion
+    );
+    setTimeout(() => {
+      //MH - tempm - wait 5 seconds for now before detecting motion
+      this.detectMotion(true);
+    }, 5000);
+  }
+
+  componentWillUpdate(nextProps, nextState) {
+    if (this.state.detectMotion && nextState.motion && this.state.motion) {
+      if (
+        Math.abs(nextState.motion.x - this.state.motion.x) <
+          this.props.motionTolerance &&
+        Math.abs(nextState.motion.y - this.state.motion.y) <
+          this.props.motionTolerance &&
+        Math.abs(nextState.motion.z - this.state.motion.z) <
+          this.props.motionTolerance
+      ) {
+        //still
+        this.detectFaces(true);
+        this.detectMotion(false);
+      } else {
+        //moving
+      }
+    }
+  }
+
+  detectMotion = doDetect => {
+    this.setState({
+      detectMotion: doDetect
+    });
+    if (doDetect) {
+      DangerZone.DeviceMotion.setUpdateInterval(this.props.motionInterval);
+    } else if (!doDetect && this.state.faceDetecting) {
+      this.motionListener.remove();
+    }
+  };
+
+  onDeviceMotion = rotation => {
+    this.setState({
+      motion: rotation.accelerationIncludingGravity
+    });
+  };
+
+  detectFaces(doDetect) {
+    this.setState({
+      faceDetecting: doDetect
+    });
   }
 
   render() {
-    // You need to add the `isArEnabled` & `arTrackingConfiguration` props.
-    // `isArRunningStateEnabled` Will show us the play/pause button in the corner.
-    // `isArCameraStateEnabled` Will render the camera tracking information on the screen.
-    // `arTrackingConfiguration` denotes which camera the AR Session will use.
-    // World for rear, Face for front (iPhone X only)
-    return (
-      <GraphicsView
-        style={{ flex: 1 }}
-        onContextCreate={this.onContextCreate}
-        onRender={this.onRender}
-        onResize={this.onResize}
-        isArEnabled
-        isArRunningStateEnabled
-        isArCameraStateEnabled
-        arTrackingConfiguration={"ARWorldTrackingConfiguration"}
-      />
-    );
+    const { hasCameraPermission } = this.state;
+    if (hasCameraPermission === null) {
+      return <View />;
+    } else if (hasCameraPermission === false) {
+      return <Text>No access to camera</Text>;
+    } else {
+      return (
+        <View style={{ flex: 1 }}>
+          <Camera
+            style={{ flex: 1 }}
+            type={this.props.cameraType}
+            onFacesDetected={
+              this.state.faceDetecting ? this.handleFacesDetected : undefined
+            }
+            onFaceDetectionError={this.handleFaceDetectionError}
+            faceDetectorSettings={{
+              mode: FaceDetector.Constants.Mode.fast,
+              detectLandmarks: FaceDetector.Constants.Mode.none,
+              runClassifications: FaceDetector.Constants.Mode.none
+            }}
+            ref={ref => {
+              this.camera = ref;
+            }}
+          >
+            <View
+              style={{
+                flex: 1,
+                backgroundColor: "transparent",
+                flexDirection: "row",
+                position: "absolute",
+                bottom: 0
+              }}
+            >
+              <Text style={styles.textStandard}>
+                {this.state.faceDetected ? "Face Detected" : "No Face Detected"}
+              </Text>
+            </View>
+            <View
+              style={{
+                flex: 1,
+                backgroundColor: "transparent",
+                flexDirection: "row",
+                width: "100%",
+                height: "100%",
+                justifyContent: "center",
+                alignItems: "center",
+                display:
+                  this.state.faceDetected && !this.state.pictureTaken
+                    ? "flex"
+                    : "none"
+              }}
+            />
+          </Camera>
+        </View>
+      );
+    }
   }
 
-  // When our context is built we can start coding 3D things.
-  onContextCreate = async ({ gl, scale: pixelRatio, width, height }) => {
-    // This will allow ARKit to collect Horizontal surfaces
-    AR.setPlaneDetection("horizontal");
-
-    // Create a 3D renderer
-    this.renderer = new ExpoTHREE.Renderer({
-      gl,
-      pixelRatio,
-      width,
-      height
-    });
-
-    // We will add all of our meshes to this scene.
-    this.scene = new THREE.Scene();
-    // This will create a camera texture and use it as the background for our scene
-    this.scene.background = new ThreeAR.BackgroundTexture(this.renderer);
-    // Now we make a camera that matches the device orientation.
-    // Ex: When we look down this camera will rotate to look down too!
-    this.camera = new ThreeAR.Camera(width, height, 0.01, 1000);
-
-    // Make a cube - notice that each unit is 1 meter in real life, we will make our box 0.1 meters
-    const geometry = new THREE.BoxGeometry(0.1, 0.1, 0.1);
-    // Simple color material
-    const material = new THREE.MeshPhongMaterial({
-      color: 0xff00ff
-    });
-
-    // Combine our geometry and material
-    this.cube = new THREE.Mesh(geometry, material);
-    // Place the box 0.4 meters in front of us.
-    this.cube.position.z = -0.4;
-    // Add the cube to the scene
-    this.scene.add(this.cube);
-
-    // Setup a light so we can see the cube color
-    // AmbientLight colors all things in the scene equally.
-    this.scene.add(new THREE.AmbientLight(0xffffff));
-
-    // Create this cool utility function that let's us see all the raw data points.
-    this.points = new ThreeAR.Points();
-    // Add the points to our scene...
-    this.scene.add(this.points);
+  handleFaceDetectionError = () => {
+    //
   };
-
-  // When the phone rotates, or the view changes size, this method will be called.
-  onResize = ({ x, y, scale, width, height }) => {
-    // Let's stop the function if we haven't setup our scene yet
-    if (!this.renderer) {
-      return;
+  handleFacesDetected = ({ faces }) => {
+    if (faces.length === 1) {
+      this.setState({
+        faceDetected: true
+      });
     }
-    this.camera.aspect = width / height;
-    this.camera.updateProjectionMatrix();
-    this.renderer.setPixelRatio(scale);
-    this.renderer.setSize(width, height);
-  };
-
-  // Called every frame.
-  onRender = () => {
-    // This will make the points get more rawDataPoints from Expo.AR
-    this.points.update();
-    // Finally render the scene with the AR Camera
-    this.renderer.render(this.scene, this.camera);
+    if (this.state.faceDetected === true) {
+      return <Button>See Box</Button>;
+    }
   };
 }
+
+const styles = StyleSheet.create({
+  container: {
+    flex: 1,
+    backgroundColor: "#fff",
+    alignItems: "center",
+    justifyContent: "center"
+  },
+  textStandard: {
+    fontSize: 18,
+    marginBottom: 10,
+    color: "white"
+  },
+  countdown: {
+    fontSize: 40,
+    color: "white"
+  }
+});

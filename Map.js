@@ -1,6 +1,9 @@
 import React from "react";
 import MapView from "react-native-maps";
 import ArFrame from "./ArFrame";
+import CameraExample from "./ArFrame";
+import ThreeDBox from "./3dBox";
+import RandomBox from "./3dBox";
 
 export default class MapPage extends React.Component {
   state = {
@@ -29,7 +32,7 @@ export default class MapPage extends React.Component {
         </MapView>
       );
     } else {
-      return <ArFrame />;
+      return <RandomBox />;
     }
   }
 
