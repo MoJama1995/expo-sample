@@ -9,8 +9,6 @@ import ExpoTHREE, { AR as ThreeAR, THREE } from "expo-three";
 import { View as GraphicsView } from "expo-graphics";
 import { Text } from "react-native";
 
-const asset = Expo.Asset.fromModule(require("./assets/northcoderslogo.png"));
-
 export default class ArFrame extends React.Component {
   componentDidMount() {
     // Turn off extra warnings
@@ -41,7 +39,7 @@ export default class ArFrame extends React.Component {
   // When our context is built we can start coding 3D things.
   onContextCreate = async ({ gl, scale: pixelRatio, width, height }) => {
     // This will allow ARKit to collect Horizontal surfaces
-    AR.setPlaneDetection("horizontal");
+    AR.setPlaneDetection("vertical");
 
     // Create a 3D renderer
     this.renderer = new ExpoTHREE.Renderer({
@@ -50,6 +48,7 @@ export default class ArFrame extends React.Component {
       width,
       height
     });
+    const loader = new THREE.TextureLoader();
 
     // We will add all of our meshes to this scene.
     this.scene = new THREE.Scene();
@@ -58,33 +57,24 @@ export default class ArFrame extends React.Component {
     // Now we make a camera that matches the device orientation.
     // Ex: When we look down this camera will rotate to look down too!
     this.camera = new ThreeAR.Camera(width, height, 0.01, 1000);
+    const geometry = new THREE.PlaneGeometry(0.5, 0.5 * 0.5);
 
-    await asset.downloadAsync();
-
-    await AR.setDetectionImagesAsync({
-      myDopeImage: {
-        /**
-         * The local uri of the image, this can be obtained with Expo.Asset.fromModule()
-         */
-        uri: asset.localUri,
-        /**
-         * Name used to identify the Image Anchor returned in a `onAnchorsDidUpdate` listener.
-         */
-        name: "myDopeImage",
-        /**
-         * Real-world size in meters.
-         */
-        width: 0.1
-      }
+    const material = new THREE.MeshBasicMaterial({
+      map: loader.load("http://threejs.hofk.de/BufferGeometry/02_buffer.html"),
+      opacity: 0.5,
+      color: 0xff0000
     });
+
+    this.mesh = new THREE.Mesh(geometry, material);
 
     AR.onAnchorsDidUpdate(({ anchors, eventType }) => {
       for (let anchor of anchors) {
-        if (anchor.type === AR.AnchorType.Image) {
+        if (anchor.type === "ARPlaneAnchor") {
           const { identifier, image, transform } = anchor;
 
           if (eventType === AR.AnchorEventType.Add) {
-            return <Text>This works!</Text>;
+            this.mesh.visible = true;
+            this.mesh.position.set(0, 0, -5);
           } else if (eventType === AR.AnchorEventType.Remove) {
             // Remove that node
           } else if (eventType === AR.AnchorEventType.Update) {
@@ -94,7 +84,8 @@ export default class ArFrame extends React.Component {
       }
     });
 
-    // Setup a light so we can see the cube color
+    this.scene.add(this.mesh);
+
     // AmbientLight colors all things in the scene equally.
     this.scene.add(new THREE.AmbientLight(0xffffff));
 
